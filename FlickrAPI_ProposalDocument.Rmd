@@ -1,0 +1,59 @@
+---
+title: "Calorie Calculator - FlickR Image Classifier"
+author: "Rohan Pathak"
+output: html_document
+date: "2023-03-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem Description
+
+With people ever getting more health conscious, the popularity of calorie-tracking apps is on the raise. Though gimmicky, the addition of an image classifier to such an app that can provide nutritional information based on the picture of the food taken could be a unique selling point and give a competitive advantage.  
+
+The primary data will be scraped using FlickrAPI. For this puepose, the R package FlickrAPI is to be used to interface with the API. These images will be used to create an image classifier. The classifier will be used to classify new images and then output the nutritional values of the respective food item.
+
+## Analytics Plan
+
+#### Data Scraping
+getPhotoSearch method from the FlickrAPI package is used to find the most "Interesting" pics under a certain tag and retrieve all metadata about the photos.
+Further download.file method is further used to download the photos scraped URLs.
+
+#### Data Processing
+The photos are to be processed and manipulated for improving model performance and efficiency.
+Some of the planned steps include,
+
+1.Resizing: Resizing images to a fixed size to ensure that images are all the same size, which is required by many some neural network architectures.
+
+2.Normalization: Normalizing the pixel values of the images to have zero mean and unit variance
+
+3.Color conversion: Converting images to grayscale
+
+## Model Building
+
+70% of the scraped and processed images are to be used for the model.
+Keras and Tensorflow are to be used for building the convoluted neural network (CNN).
+
+- Define the model architecture which would involve specifying the layers of the neural network, including the input layer, convolution layers, pooling layers, and dense layers. The exact architecture is yet to be decided.
+
+- Compile the model by specifying the optimizer, loss function, and metrics to be used during training. The level of metrics to be decided.
+
+- Use the fit function to train the model.
+
+
+## Evaluation Plan
+
+The data will be initial split into 70% for training & 30% for test. 
+The 20% will be used to evaluate the performance of the model using metrics such as accuracy, loss, precision, recall for each class of classification.
+
+#### Tuning the model
+
+Identify the classes that are not performing optimally and either perform Hyper parameter tuning by adjusting factors such as learning rate, batch size, number of epochs, etc. or increasing the training set for the particular class that is not performing optimally.
+
+
+#### Deploying the model
+A simple user interface to be build wherein if a picture is uploaded the food item in the picture is identified and further the nutritional info is displayed.
+Food item to calorific content mappings to be scraped from US Dept of Agriculture Website.
+

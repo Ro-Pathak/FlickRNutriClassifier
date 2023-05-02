@@ -1,0 +1,986 @@
+﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html><head></head><body>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="container-fluid main-container">
+
+
+
+
+<div>
+
+
+
+<h1 class="title toc-ignore">Project-Group6-FlickRImageClassifier</h1>
+<h4 class="author">Gokul Nedunsezhian, Jai Krishna Mounaguru, Rohit
+Madhu, Rohan Pathak, Balajhi Shanmugam Selvakumar</h4>
+<h4 class="date">2023-04-25</h4>
+
+</div>
+
+
+<div class="section level2">
+<h2>Problem Description</h2>
+<p>People are becoming more health conscious and interested in tracking
+their calorie intake.</p>
+<p>An image classifier that can provide nutritional information based on
+the picture of the food taken could be a unique selling point for
+calorie-tracking apps.</p>
+<p>We plan to scrape data using the FlickrAPI package to create an image
+classifier for food items and use it to output nutritional values of the
+respective food item.</p>
+</div>
+<div class="section level2">
+<h2>Link to Scrapped Data</h2>
+<p>Google Drive link with the training and test images</p>
+<p>Link - <a rel="noopener" href="https://drive.google.com/drive/folders/1wTq1eJN3_gbEVnaqtpZbWWJ5SwKh_xqT?usp=sharing" class="uri">https://drive.google.com/drive/folders/1wTq1eJN3_gbEVnaqtpZbWWJ5SwKh_xqT?usp=sharing</a></p>
+</div>
+<div class="section level2">
+<h2>Loading the Libraries</h2>
+<pre class="r"><code># Load required libraries
+library(tidyverse)
+library(keras)
+library(tensorflow)
+library(reticulate)
+library(jpeg)
+library(httr) 
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)</code></pre>
+</div>
+<div class="section level2">
+<h2>Downloading the Images</h2>
+<p>Use FlickR API to search for the 5500 most interesting pictures in
+each of the 4 catogories</p>
+<pre class="r"><code># Specify the food items to download
+food_items &lt;- c(&quot;burger&quot;, &quot;banana&quot;, &quot;apple&quot;, &quot;pasta&quot;)
+
+# Specify the directory to save the images
+dir.create(&quot;training_data&quot;)
+local_dir &lt;- &quot;training_data&quot;</code></pre>
+<p>Loop through the food items and download the images</p>
+<pre class="r"><code># Loop through each food item
+for (food_item in food_items) {
+  # Create a subdirectory for this food item
+  sub_dir &lt;- paste(local_dir, &quot;/&quot;, food_item, sep = &quot;&quot;)
+  dir.create(sub_dir)
+  
+  # Specify the number of images to download for this food item
+  n_images &lt;- 5500
+  
+  # Specify the number of images to download per request
+  per_page &lt;- 500
+  
+  # Specify the number of requests needed
+  n_requests &lt;- ceiling(n_images / per_page)
+  
+  # Loop through each request
+  for (page in 1:n_requests) {
+    # Calculate the starting index for this request
+    start &lt;- (page - 1) * per_page + 1
+    
+    # Make the API request for this page
+    photos &lt;- getPhotoSearch(api_key = &quot;a78a61870fb226f1aa6e348cd78c075e&quot;,
+                             tags = food_item,
+                             extras = &quot;url_o&quot;,
+                             img_size = &quot;m&quot;,
+                             per_page = per_page,
+                             page = page,
+                             sort = &quot;interestingness-desc&quot;)
+    
+    # Remove columns with NA values in url_o column
+    photos &lt;- subset(photos, !is.na(url_m))
+    
+    # Loop through each row in the dataframe for this request
+    for (i in 1:nrow(photos)) {
+      # Get the URL for the current photo
+      url &lt;- photos$url_m[i]
+      
+      # Extract the photo ID from the URL
+      photo_id &lt;- gsub(&quot;.*/&quot;, &quot;&quot;, url)
+      
+      # Calculate the index of this photo
+      index &lt;- start + i - 1
+      
+      # Construct the filename by concatenating the index and the photo ID
+      filename &lt;- paste(sub_dir, &quot;/&quot;, index, &quot;-&quot;, photo_id, &quot;.jpg&quot;, sep = &quot;&quot;)
+      
+      # Try to download the photo, and skip if there is an error
+      tryCatch(
+        download.file(url, filename),
+        error = function(e) {
+          message(sprintf(&quot;Error downloading photo %s: %s&quot;, photo_id, e$message))
+        }
+      )
+      
+      # Stop the loop if we&#39;ve reached the desired number of images
+      if (index &gt;= n_images) {
+        break
+      }
+    }
+  }
+}</code></pre>
+</div>
+<div class="section level2">
+<h2>Exploring the downloaded Images</h2>
+<p>Total training images - 19526</p>
+<p>Total test images - 592</p>
+<p>Total images - 20118</p>
+<p>Though the target was 22000, due to download issues we got to
+download 91% of the scraped data.</p>
+<p>592 of these images were manually tagged for the purpose of
+testing.</p>
+<p>60% of the data was used for training and the rest 40% for
+validation.</p>
+<pre class="r"><code># set the path to the directory you want to count the files in
+path &lt;- &quot;train/&quot;
+path_test &lt;- &quot;test/&quot;
+
+# recursively list all files in the directory and its subdirectories
+file_list &lt;- list.files(path, recursive = TRUE, full.names = TRUE)
+file_list_test &lt;- list.files(path_test, recursive = TRUE, full.names = TRUE)
+
+# count the number of image files and total files
+image_count_train &lt;- file_list %&gt;% 
+  str_detect(&quot;.jpg|.jpeg|.png|.gif|.bmp&quot;) %&gt;% 
+  sum()
+
+image_count_test &lt;- file_list_test %&gt;% 
+  str_detect(&quot;.jpg|.jpeg|.png|.gif|.bmp&quot;) %&gt;% 
+  sum()
+
+total_images = image_count_train+image_count_test
+
+# print the results
+cat(paste0(&quot;Number of Training image files: &quot;, image_count_train, &quot;\n&quot;))</code></pre>
+<pre><code>## Number of Training image files: 19526</code></pre>
+<pre class="r"><code>cat(paste0(&quot;Number of Test image files: &quot;, image_count_test, &quot;\n&quot;))</code></pre>
+<pre><code>## Number of Test image files: 592</code></pre>
+<pre class="r"><code>cat(paste0(&quot;Number of Image files: &quot;, total_images, &quot;\n&quot;))</code></pre>
+<pre><code>## Number of Image files: 20118</code></pre>
+</div>
+<div class="section level2">
+<h2>Image Processing &amp; Augmentation</h2>
+<p>Getting the labels for data, Set the image dimensions &amp; set up
+image data generator</p>
+<pre class="r"><code># Get the list of labels for each class
+label_list &lt;- dir(&quot;train/&quot;)
+output_n &lt;- length(label_list)
+# Save the list of labels to a file
+save(label_list, file=&quot;label_list.R&quot;)
+
+# Set the dimensions for the input images
+width &lt;- 224
+height&lt;- 224
+target_size &lt;- c(width, height)
+rgb &lt;- 3 #color channels</code></pre>
+<p>Re scale the pixel values of the images to be between 0 and 1.</p>
+<p>Specify a target_size of 224 x 224 pixels for the image for
+resizing.</p>
+<p>Set validation_split to 0.6 meaning 40% of the data to be used for
+validation.</p>
+<pre class="r"><code># Specify the path to the training data and create a data generator
+path_train &lt;- &quot;train/&quot;
+train_data_gen &lt;- image_data_generator(rescale = 1/255, 
+                                       validation_split = .6)
+# Create a generator for the training images
+train_images &lt;- flow_images_from_directory(path_train,
+                                           train_data_gen,
+                                           subset = &#39;training&#39;,
+                                           target_size = target_size,
+                                           class_mode = &quot;categorical&quot;,
+                                           shuffle = TRUE,
+                                           batch_size = 32,
+                                           classes = label_list,
+                                           seed = 2021)
+
+# Create a generator for the validation images
+validation_images &lt;- flow_images_from_directory(path_train,
+                                         train_data_gen,
+                                         subset = &quot;validation&quot;,
+                                         target_size = target_size,
+                                         class_mode = &quot;categorical&quot;,
+                                         shuffle = TRUE,
+                                         batch_size = 32,
+                                         classes = label_list,
+                                         seed = 2021)</code></pre>
+</div>
+<div class="section level2">
+<h2>Model building</h2>
+<p>Define a sequential model for image classification using transfer
+learning with the pre-trained Xception model as the base.</p>
+<p>The base model is loaded with weights from the ImageNet dataset.</p>
+<p>Its layers are frozen to prevent them from being updated during
+training.</p>
+<pre class="r"><code>mod_base &lt;- application_xception(weights = &#39;imagenet&#39;, 
+                                 include_top = FALSE, input_shape = c(width, height, 3))
+freeze_weights(mod_base) 
+
+model_function &lt;- function(learning_rate = 0.001, 
+                           dropoutrate=0.2, n_dense=1024){
+  
+  k_clear_session() # Clear any existing models in memory
+  
+  # Create a sequential model and add the pre-trained Xception model as the base
+  model &lt;- keras_model_sequential() %&gt;%
+    mod_base %&gt;% 
+    # Add a global average pooling layer to reduce the number of parameters
+    layer_global_average_pooling_2d() %&gt;% 
+    # Add a dense layer with the specified number of units
+    layer_dense(units = n_dense) %&gt;%
+    # Add a ReLU activation function
+    layer_activation(&quot;relu&quot;) %&gt;%
+    # Add a dropout layer to prevent overfitting
+    layer_dropout(dropoutrate) %&gt;%
+    # Add a final dense layer with the number of output classes and a softmax activation function
+    layer_dense(units=output_n, activation=&quot;softmax&quot;)
+  
+  # Compile the model with categorical cross-entropy loss, Adam optimizer and accuracy metric
+  model %&gt;% compile(
+    loss = &quot;categorical_crossentropy&quot;,
+    optimizer = optimizer_adam(lr = learning_rate),
+    metrics = &quot;accuracy&quot;
+  )
+  
+  # Return the compiled model
+  return(model)
+  
+}</code></pre>
+<p>Deploy the Model</p>
+<pre class="r"><code># Create the neural network model using default parameter values
+model &lt;- model_function()</code></pre>
+<p>The Model is further trained on the training data</p>
+<pre class="r"><code>model %&gt;% fit(
+  train_images,
+  class_mode = &quot;categorical&quot;,
+  classes = label_list,
+  epochs = 2, # modify the number of epochs if necessary
+  validation_data = validation_images
+)</code></pre>
+<p>Load the trained Model</p>
+<pre class="r"><code># Load the model
+model &lt;- load_model_hdf5(&quot;Project-Group6-FlickRImageClassifier.h5&quot;)</code></pre>
+<div class="section level3">
+<h3>Test the Accuracy of the model using the Test data</h3>
+<pre class="r"><code>path_test &lt;- &quot;test&quot;
+test_data_gen &lt;- image_data_generator(rescale = 1/255)
+test_images &lt;- flow_images_from_directory(path_test,
+                                          test_data_gen,
+                                          target_size = target_size,
+                                          class_mode = &quot;categorical&quot;,
+                                          classes = label_list,
+                                          shuffle = F,
+                                          seed = 2021)
+
+model %&gt;% evaluate_generator(test_images, 
+                             steps = test_images$n)</code></pre>
+<pre><code>##      loss  accuracy 
+## 0.1495422 0.9459459</code></pre>
+</div>
+<div class="section level3">
+<h3>Confusion Matrix</h3>
+<pre class="r"><code># Make predictions on test images
+pred &lt;- predict(model, test_images)
+
+# Get predicted labels
+pred_labels &lt;- label_list[apply(pred, 1, which.max)]
+
+# Get true labels
+true_labels &lt;- test_images$classes
+
+# Create confusion matrix
+conf_mat &lt;- table(pred_labels, true_labels)
+
+# Print confusion matrix
+#print(conf_mat)
+# Convert table to data frame
+conf_mat_df &lt;- as.data.frame.matrix(conf_mat)
+
+# Print confusion matrix using kable
+kable(conf_mat_df, format = &quot;html&quot;, caption = &quot;Confusion Matrix&quot;)</code></pre>
+<table>
+<caption>
+Confusion Matrix
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+</th>
+<th style="text-align:right;">
+0
+</th>
+<th style="text-align:right;">
+1
+</th>
+<th style="text-align:right;">
+2
+</th>
+<th style="text-align:right;">
+3
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+apple
+</td>
+<td style="text-align:right;">
+108
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+banana
+</td>
+<td style="text-align:right;">
+29
+</td>
+<td style="text-align:right;">
+193
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+burger
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+101
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+pasta
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+0
+</td>
+<td style="text-align:right;">
+1
+</td>
+<td style="text-align:right;">
+158
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section level3">
+<h3>Class level Accuracy, Precision &amp; Recall</h3>
+<pre class="r"><code># Compute class-level accuracy
+class_acc &lt;- diag(conf_mat) / colSums(conf_mat, na.rm = TRUE) * 100
+names(class_acc) &lt;- label_list
+print(paste(round(class_acc, 2), &quot;%&quot;, sep = &quot;&quot;))</code></pre>
+<pre><code>## [1] &quot;78.83%&quot; &quot;99.48%&quot; &quot;98.06%&quot; &quot;100%&quot;</code></pre>
+<pre class="r"><code># Compute precision
+precision &lt;- diag(conf_mat) / colSums(conf_mat) * 100
+names(precision) &lt;- label_list
+print(paste(round(precision, 2), &quot;%&quot;, sep = &quot;&quot;))</code></pre>
+<pre><code>## [1] &quot;78.83%&quot; &quot;99.48%&quot; &quot;98.06%&quot; &quot;100%&quot;</code></pre>
+<pre class="r"><code># Compute recall
+recall &lt;- diag(conf_mat) / rowSums(conf_mat) * 100
+names(recall) &lt;- label_list
+print(paste(round(recall, 2), &quot;%&quot;, sep = &quot;&quot;))</code></pre>
+<pre><code>## [1] &quot;99.08%&quot; &quot;86.55%&quot; &quot;100%&quot;   &quot;99.37%&quot;</code></pre>
+<p>Looking at the matrix, we can see that the model performs well in
+correctly identifying the apple and pasta classes, as there are no false
+predictions for these classes.</p>
+<p>However, it is less accurate in predicting the banana and burger
+classes, with 29 false predictions for banana and 1 false prediction for
+burger.</p>
+<p>The overall accuracy is still at 94.6%.</p>
+<p>The model has high precision for all classes, ranging from 86.55% for
+banana to 100% for burger and pasta.</p>
+<p>And the model has high recall for all classes, ranging from 98.06%
+for banana to 100% for all other classes.</p>
+</div>
+<div class="section level3">
+<h3>Testing a random image downloaded from a google search</h3>
+<pre class="r"><code># Load test image
+test_image &lt;- image_load(&quot;pasta11.jpg&quot;,
+                         target_size = target_size)
+
+
+# Display the image
+img &lt;- readJPEG(&quot;pasta11.jpg&quot;)
+plot(0, 0, type = &quot;n&quot;, xlim = c(0, 1), ylim = c(0, 1), axes = FALSE, ann = FALSE)
+rasterImage(img, 0, 0, 1, 1)</code></pre>
+<p><img src="javascript://" width="672"/></p>
+<pre class="r"><code># Preprocess image
+x &lt;- image_to_array(test_image)
+x &lt;- array_reshape(x, c(1, dim(x)))
+x &lt;- x/255
+
+
+# Make predictions and create a data frame
+pred &lt;- model %&gt;% predict(x)
+
+Probability = t(pred)
+
+
+pred_df &lt;- data.frame(&quot;Food&quot; = label_list, Probability)
+pred_df &lt;- pred_df[order(pred_df$Probability, decreasing = TRUE),][1:4,]
+pred_df$Probability &lt;- paste0(format(round(100*as.numeric(pred_df$Probability), 2), nsmall = 2), &quot; %&quot;)
+pred_df &lt;- pred_df[complete.cases(pred_df), ]
+
+# Display results in a table
+library(knitr)
+kable(pred_df, align = &quot;c&quot;, row.names = FALSE, col.names = c(&quot;&quot;, &quot;Probability&quot;))</code></pre>
+<table>
+<thead>
+<tr>
+<th style="text-align:center;">
+</th>
+<th style="text-align:center;">
+Probability
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center;">
+pasta
+</td>
+<td style="text-align:center;">
+93.12 %
+</td>
+</tr>
+<tr>
+<td style="text-align:center;">
+banana
+</td>
+<td style="text-align:center;">
+5.53 %
+</td>
+</tr>
+<tr>
+<td style="text-align:center;">
+burger
+</td>
+<td style="text-align:center;">
+1.24 %
+</td>
+</tr>
+<tr>
+<td style="text-align:center;">
+apple
+</td>
+<td style="text-align:center;">
+0.11 %
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section level3">
+<h3>Determining the nutritional info</h3>
+<pre class="r"><code>classified_food = label_list[which.max(t(pred))]
+
+# specify API endpoint URL and parameters
+url &lt;- &quot;https://api.nal.usda.gov/fdc/v1/foods/search&quot;
+params &lt;- list(api_key = &quot;n1ivodEIAZmzjfRczeaehpZgmb7mOvISJYu644u2&quot;, query = classified_food)
+
+# make GET request to API endpoint with parameters and API key
+response &lt;- GET(url, query = params)
+
+# extract response content as text
+response_text &lt;- content(response, &quot;text&quot;)
+
+# parse response text as JSON
+response_data &lt;- jsonlite::fromJSON(response_text)
+
+
+# extract relevant data from response object
+food_list &lt;- list(response_data$foods)
+food_name &lt;- food_list[[1]]$description
+calories_data &lt;- food_list[[1]]$foodNutrients
+
+nutr_df&lt;-calories_data[[1]]
+
+nutr_df &lt;- nutr_df %&gt;%
+  select(-nutrientId, -nutrientNumber, -derivationCode, -
+           derivationDescription, -derivationId, -foodNutrientSourceId,
+         -foodNutrientSourceCode, -foodNutrientSourceDescription, 
+         -rank, -indentLevel,-foodNutrientId)
+
+
+
+# replace missing values with 0
+nutr_df[is.na(nutr_df)] &lt;- 0
+
+# replace missing values with 0
+nutr_df[is.na(nutr_df)] &lt;- 0
+
+# sort the data frame based on percentDailyValue
+nutr_df &lt;- nutr_df[order(-nutr_df$percentDailyValue),]
+
+# print extracted data to console
+cat(paste(&quot;Food Name: &quot;, food_name[1], &quot;\n&quot;))</code></pre>
+<pre><code>## Food Name:  PASTA</code></pre>
+<pre class="r"><code>cat(&quot;Nutrients Data: \n&quot;)</code></pre>
+<pre><code>## Nutrients Data:</code></pre>
+<pre class="r"><code>kable(nutr_df, col.names = c(&quot;Nutrient Name&quot;, &quot;Unit Name&quot;, &quot;Value&quot;, &quot;Percent Daily Value&quot;))</code></pre>
+<table>
+<thead>
+<tr>
+<th style="text-align:left;">
+</th>
+<th style="text-align:left;">
+Nutrient Name
+</th>
+<th style="text-align:left;">
+Unit Name
+</th>
+<th style="text-align:right;">
+Value
+</th>
+<th style="text-align:right;">
+Percent Daily Value
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+6
+</td>
+<td style="text-align:left;">
+Thiamin
+</td>
+<td style="text-align:left;">
+MG
+</td>
+<td style="text-align:right;">
+1.000
+</td>
+<td style="text-align:right;">
+30
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+8
+</td>
+<td style="text-align:left;">
+Niacin
+</td>
+<td style="text-align:left;">
+MG
+</td>
+<td style="text-align:right;">
+5.360
+</td>
+<td style="text-align:right;">
+15
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+13
+</td>
+<td style="text-align:left;">
+Carbohydrate, by difference
+</td>
+<td style="text-align:left;">
+G
+</td>
+<td style="text-align:right;">
+78.600
+</td>
+<td style="text-align:right;">
+15
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+2
+</td>
+<td style="text-align:left;">
+Iron, Fe
+</td>
+<td style="text-align:left;">
+MG
+</td>
+<td style="text-align:right;">
+3.210
+</td>
+<td style="text-align:right;">
+10
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+7
+</td>
+<td style="text-align:left;">
+Riboflavin
+</td>
+<td style="text-align:left;">
+MG
+</td>
+<td style="text-align:right;">
+0.304
+</td>
+<td style="text-align:right;">
+10
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+16
+</td>
+<td style="text-align:left;">
+Fiber, total dietary
+</td>
+<td style="text-align:left;">
+G
+</td>
+<td style="text-align:right;">
+3.600
+</td>
+<td style="text-align:right;">
+8
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+12
+</td>
+<td style="text-align:left;">
+Total lipid (fat)
+</td>
+<td style="text-align:left;">
+G
+</td>
+<td style="text-align:right;">
+1.790
+</td>
+<td style="text-align:right;">
+2
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+1
+</td>
+<td style="text-align:left;">
+Calcium, Ca
+</td>
+<td style="text-align:left;">
+MG
+</td>
+<td style="text-align:right;">
+0.000
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+3
+</td>
+<td style="text-align:left;">
+Sodium, Na
+</td>
+<td style="text-align:left;">
+MG
+</td>
+<td style="text-align:right;">
+0.000
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+4
+</td>
+<td style="text-align:left;">
+Vitamin A, IU
+</td>
+<td style="text-align:left;">
+IU
+</td>
+<td style="text-align:right;">
+0.000
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+5
+</td>
+<td style="text-align:left;">
+Vitamin C, total ascorbic acid
+</td>
+<td style="text-align:left;">
+MG
+</td>
+<td style="text-align:right;">
+0.000
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+9
+</td>
+<td style="text-align:left;">
+Cholesterol
+</td>
+<td style="text-align:left;">
+MG
+</td>
+<td style="text-align:right;">
+0.000
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+10
+</td>
+<td style="text-align:left;">
+Fatty acids, total saturated
+</td>
+<td style="text-align:left;">
+G
+</td>
+<td style="text-align:right;">
+0.000
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+11
+</td>
+<td style="text-align:left;">
+Protein
+</td>
+<td style="text-align:left;">
+G
+</td>
+<td style="text-align:right;">
+12.500
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+14
+</td>
+<td style="text-align:left;">
+Energy
+</td>
+<td style="text-align:left;">
+KCAL
+</td>
+<td style="text-align:right;">
+375.000
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+15
+</td>
+<td style="text-align:left;">
+Sugars, total including NLEA
+</td>
+<td style="text-align:left;">
+G
+</td>
+<td style="text-align:right;">
+3.570
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+17
+</td>
+<td style="text-align:left;">
+Fatty acids, total trans
+</td>
+<td style="text-align:left;">
+G
+</td>
+<td style="text-align:right;">
+0.000
+</td>
+<td style="text-align:right;">
+0
+</td>
+</tr>
+</tbody>
+</table>
+<pre class="r"><code># Print the Calories
+
+energy_value &lt;- nutr_df[nutr_df$nutrientName == &#39;Energy&#39;, &#39;value&#39;][1]
+cat(&quot;It contains&quot;, energy_value, &quot;calories.&quot;)</code></pre>
+<pre><code>## It contains 375 calories.</code></pre>
+<pre class="r"><code># Set up plot window grid
+par(mfrow = c(1, 5))
+
+# Display the top 5 nutrients based on Daily Requirement according to the FDA
+
+for (i in 1:5) {
+  
+  # Create a vector for the data to be used in the pie chart
+  pie_data &lt;- c(nutr_df[i,&quot;percentDailyValue&quot;], 100-nutr_df[i,&quot;percentDailyValue&quot;])
+  
+  # Create a vector for the labels to be used in the pie chart
+  pie_labels &lt;- c(paste0(nutr_df[i,&quot;nutrientName&quot;], &quot; - &quot;, nutr_df[i,&quot;percentDailyValue&quot;], &quot;%&quot;), 
+                  paste0(&quot;Other - &quot;, 100-nutr_df[i,&quot;percentDailyValue&quot;], &quot;%&quot;))
+  
+  # Create the pie chart
+  pie(pie_data, labels = pie_labels, col =  c(&quot;#00AFBB&quot;, &quot;#FC4E07&quot;), cex.main = 0.8)
+  
+  # Add the title within the plot area
+  title(nutr_df[i,&quot;nutrientName&quot;], line = -11.25, cex.main = 1.2)
+}
+
+# Add the main title above the plot area
+main_title &lt;- &quot;Top 5 nutrients by daily requirement&quot;
+mtext(main_title, outer = TRUE, line = -11, cex = 1.5)</code></pre>
+<p><img src="javascript://" width="672"/></p>
+</div>
+</div>
+
+
+
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script type="module" src="https://s.brightspace.com/lib/bsi/20.23.4-262/unbundled/mathjax.js"></script><script type="text/javascript">document.addEventListener('DOMContentLoaded', function() {
+					if (document.querySelector('math') || /\$\$|\\\(|\\\[|\\begin{|\\ref{|\\eqref{/.test(document.body.innerHTML)) {
+						document.querySelectorAll('mspace[linebreak="newline"]').forEach(elm => {
+							elm.setAttribute('style', 'display: block; height: 0.5rem;');
+						});
+
+						window.D2L.MathJax.loadMathJax({
+							'outputScale': 1.3,
+							'renderLatex': false
+						});
+					}
+				});</script><script type="module" src="https://s.brightspace.com/lib/bsi/20.23.4-262/unbundled/prism.js"></script><script type="text/javascript">document.addEventListener('DOMContentLoaded', function() {
+					document.querySelectorAll('.d2l-code').forEach(code => {
+						window.D2L.Prism.formatCodeElement(code);
+					});
+				});</script></body></html>
